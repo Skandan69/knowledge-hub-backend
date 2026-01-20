@@ -138,6 +138,61 @@ app.post("/api/kb/seed", async (req, res) => {
     res.status(500).json({ error: "Seed failed" });
   }
 });
+// -----------------------------
+// ✅ API: Create Single Article
+// -----------------------------
+app.post("/api/kb/article", async (req, res) => {
+  try {
+    const { articleNumber, title, summary, content, tags, status } = req.body;
+
+    if (!articleNumber || !title) {
+      return res.status(400).json({ error: "articleNumber and title are required" });
+    }
+
+    const doc = await Article.create({
+      articleNumber: String(articleNumber).trim().toUpperCase(),
+      title: String(title).trim(),
+      summary: summary || "",
+      content: content || "",
+      tags: Array.isArray(tags) ? tags : [],
+      status: status || "published"
+    });
+
+    res.json({ ok: true, item: doc });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Create article failed", details: err.message });
+  }
+});
+
+// -----------------------------
+// ✅ API: Bulk Create Articles
+// -----------------------------
+app.post("/api/kb/articles/bulk", async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "items must be a non-empty array" });
+    }
+
+    const docs = items.map((a) => ({
+      articleNumber: String(a.articleNumber).trim().toUpperCase(),
+      title: String(a.title).trim(),
+      summary: a.summary || "",
+      content: a.content || "",
+      tags: Array.isArray(a.tags) ? a.tags : [],
+      status: a.status || "published"
+    }));
+
+    const inserted = await Article.insertMany(docs, { ordered: false });
+
+    res.json({ ok: true, inserted: inserted.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Bulk insert failed", details: err.message });
+  }
+});
 
 // -----------------------------
 // ✅ Start Server
