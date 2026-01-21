@@ -5,9 +5,9 @@ const mongoose = require("mongoose");
 
 const app = express();
 
-// ✅ CORS (allow your Hostinger frontend)
+// ✅ CORS (allow all for now)
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 // -----------------------------
 // ✅ MongoDB Connection
@@ -38,9 +38,70 @@ const articleSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-articleSchema.index({ title: "text", summary: "text", content: "text", tags: "text" });
+// ✅ Text index for search
+articleSchema.index({
+  title: "text",
+  summary: "text",
+  content: "text",
+  tags: "text"
+});
 
 const Article = mongoose.model("Article", articleSchema);
+
+// -----------------------------
+// ✅ Helpers
+// -----------------------------
+function normalizeKB(articleNumber) {
+  return String(articleNumber || "").trim().toUpperCase();
+}
+
+// Auto summary generator
+function makeSummary(content) {
+  const txt = String(content || "").trim().replace(/\s+/g, " ");
+  if (!txt) return "";
+  return txt.length > 120 ? txt.slice(0, 120) + "..." : txt;
+}
+
+// Split big SOP text into articles by headings or numbering
+function splitIntoArticles(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return [];
+
+  // Split based on headings like:
+  // 1) Title
+  // 1. Title
+  // 1 - Title
+  // ### Title
+  const lines = raw.split("\n").map(l => l.trim());
+
+  const blocks = [];
+  let current = [];
+
+  const isHeading = (line) =>
+    /^(\d+[\.\)\-]\s+.+)$/.test(line) || /^#{2,}\s+.+$/.test(line);
+
+  for (const line of lines) {
+    if (!line) continue;
+
+    if (isHeading(line) && current.length) {
+      blocks.push(current.join("\n"));
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length) blocks.push(current.join("\n"));
+
+  return blocks.map((block) => {
+    const bLines = block.split("\n");
+    const titleLine = bLines[0] || "Untitled";
+    const title = titleLine.replace(/^#{2,}\s+/, "").replace(/^\d+[\.\)\-]\s+/, "");
+
+    const content = bLines.slice(1).join("\n").trim() || block.trim();
+
+    return { title: title.trim(), content };
+  });
+}
 
 // -----------------------------
 // ✅ Health Check
@@ -56,22 +117,17 @@ app.get("/api/kb/search", async (req, res) => {
   try {
     const q = (req.query.q || "").trim();
 
-    if (!q) {
-      return res.json({ items: [] });
-    }
+    if (!q) return res.json({ items: [] });
 
     const items = await Article.find(
       {
         status: "published",
-        $or: [
-          { articleNumber: new RegExp(q, "i") },
-          { $text: { $search: q } }
-        ]
+        $or: [{ articleNumber: new RegExp(q, "i") }, { $text: { $search: q } }]
       },
       { score: { $meta: "textScore" } }
     )
       .sort({ score: { $meta: "textScore" }, updatedAt: -1 })
-      .limit(20)
+      .limit(50)
       .lean();
 
     res.json({ items });
@@ -86,7 +142,7 @@ app.get("/api/kb/search", async (req, res) => {
 // -----------------------------
 app.get("/api/kb/article/:articleNumber", async (req, res) => {
   try {
-    const articleNumber = req.params.articleNumber.trim().toUpperCase();
+    const articleNumber = normalizeKB(req.params.articleNumber);
 
     const item = await Article.findOne({
       status: "published",
@@ -103,7 +159,151 @@ app.get("/api/kb/article/:articleNumber", async (req, res) => {
 });
 
 // -----------------------------
-// ✅ Seed Dummy Articles (for testing)
+// ✅ API: Create Article (NEW)
+// -----------------------------
+app.post("/api/kb/article", async (req, res) => {
+  try {
+    const { articleNumber, title, summary, content, tags, status } = req.body || {};
+
+    const num = normalizeKB(articleNumber);
+    if (!num) return res.status(400).json({ error: "articleNumber required" });
+    if (!title) return res.status(400).json({ error: "title required" });
+
+    const doc = await Article.create({
+      articleNumber: num,
+      title,
+      summary: summary || makeSummary(content),
+      content: content || "",
+      tags: Array.isArray(tags) ? tags : [],
+      status: status || "published"
+    });
+
+    res.json({ ok: true, item: doc });
+  } catch (err) {
+    console.error(err);
+
+    // duplicate KB number
+    if (String(err).includes("E11000")) {
+      return res.status(409).json({
+        error: "Create article failed",
+        details: "Duplicate articleNumber (already exists)"
+      });
+    }
+
+    res.status(500).json({ error: "Create article failed", details: String(err) });
+  }
+});
+
+// -----------------------------
+// ✅ API: Update Article (NEW)
+// -----------------------------
+app.put("/api/kb/article/:articleNumber", async (req, res) => {
+  try {
+    const articleNumber = normalizeKB(req.params.articleNumber);
+
+    const updates = { ...req.body };
+    delete updates.articleNumber; // prevent changing KB number
+
+    const updated = await Article.findOneAndUpdate(
+      { articleNumber },
+      { $set: updates },
+      { new: true }
+    ).lean();
+
+    if (!updated) return res.status(404).json({ error: "Article not found" });
+
+    res.json({ ok: true, item: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Update failed", details: String(err) });
+  }
+});
+
+// -----------------------------
+// ✅ API: Bulk Import Articles (NEW)
+// -----------------------------
+app.post("/api/kb/bulk", async (req, res) => {
+  try {
+    const { items } = req.body || {};
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "items[] required" });
+    }
+
+    const normalized = items.map((it) => ({
+      articleNumber: normalizeKB(it.articleNumber),
+      title: it.title,
+      summary: it.summary || makeSummary(it.content),
+      content: it.content || "",
+      tags: Array.isArray(it.tags) ? it.tags : [],
+      status: it.status || "published"
+    }));
+
+    // ✅ insertMany ordered:false means it will insert others even if few fail
+    const inserted = await Article.insertMany(normalized, { ordered: false });
+
+    res.json({
+      ok: true,
+      insertedCount: inserted.length,
+      inserted
+    });
+  } catch (err) {
+    console.error(err);
+
+    // insertMany errors still allow partial insert
+    res.status(500).json({
+      error: "Bulk import failed",
+      details: String(err)
+    });
+  }
+});
+
+// -----------------------------
+// ✅ API: Import Text and Auto-create KB articles (NEW)
+// -----------------------------
+app.post("/api/kb/import-text", async (req, res) => {
+  try {
+    const { text, kbPrefix, startNumber, tags } = req.body || {};
+
+    if (!text) return res.status(400).json({ error: "text required" });
+
+    const prefix = kbPrefix || "KB-";
+    let kbNum = Number(startNumber || 4001);
+
+    const parts = splitIntoArticles(text);
+
+    if (!parts.length) {
+      return res.status(400).json({ error: "Could not split text into articles" });
+    }
+
+    const toInsert = parts.map((p) => {
+      const articleNumber = normalizeKB(`${prefix}${kbNum++}`);
+
+      return {
+        articleNumber,
+        title: p.title || "Untitled",
+        summary: makeSummary(p.content),
+        content: p.content,
+        tags: Array.isArray(tags) ? tags : [],
+        status: "published"
+      };
+    });
+
+    const inserted = await Article.insertMany(toInsert, { ordered: false });
+
+    res.json({
+      ok: true,
+      created: inserted.length,
+      firstKB: inserted[0]?.articleNumber,
+      lastKB: inserted[inserted.length - 1]?.articleNumber
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Import failed", details: String(err) });
+  }
+});
+
+// -----------------------------
+// ✅ Seed Dummy Articles (existing)
 // -----------------------------
 app.post("/api/kb/seed", async (req, res) => {
   try {
@@ -136,61 +336,6 @@ app.post("/api/kb/seed", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Seed failed" });
-  }
-});
-// -----------------------------
-// ✅ API: Create Single Article
-// -----------------------------
-app.post("/api/kb/article", async (req, res) => {
-  try {
-    const { articleNumber, title, summary, content, tags, status } = req.body;
-
-    if (!articleNumber || !title) {
-      return res.status(400).json({ error: "articleNumber and title are required" });
-    }
-
-    const doc = await Article.create({
-      articleNumber: String(articleNumber).trim().toUpperCase(),
-      title: String(title).trim(),
-      summary: summary || "",
-      content: content || "",
-      tags: Array.isArray(tags) ? tags : [],
-      status: status || "published"
-    });
-
-    res.json({ ok: true, item: doc });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Create article failed", details: err.message });
-  }
-});
-
-// -----------------------------
-// ✅ API: Bulk Create Articles
-// -----------------------------
-app.post("/api/kb/articles/bulk", async (req, res) => {
-  try {
-    const { items } = req.body;
-
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: "items must be a non-empty array" });
-    }
-
-    const docs = items.map((a) => ({
-      articleNumber: String(a.articleNumber).trim().toUpperCase(),
-      title: String(a.title).trim(),
-      summary: a.summary || "",
-      content: a.content || "",
-      tags: Array.isArray(a.tags) ? a.tags : [],
-      status: a.status || "published"
-    }));
-
-    const inserted = await Article.insertMany(docs, { ordered: false });
-
-    res.json({ ok: true, inserted: inserted.length });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Bulk insert failed", details: err.message });
   }
 });
 
