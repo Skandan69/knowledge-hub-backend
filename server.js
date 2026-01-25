@@ -317,6 +317,95 @@ app.post("/api/kb/seed", async (req, res) => {
     res.status(500).json({ error: "Seed failed" });
   }
 });
+/* --------------------------------
+   📄 UPLOAD WORD / PDF WITH DROPDOWN LOGIC
+--------------------------------- */
+
+app.post("/api/kb/upload", upload.single("file"), async (req, res) => {
+  try {
+    const { mode, startNumber } = req.body;
+    const file = req.file;
+
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
+
+    let extractedText = "";
+
+    // WORD
+    if (file.originalname.endsWith(".docx")) {
+      const result = await mammoth.extractRawText({ path: file.path });
+      extractedText = result.value;
+    }
+
+    // PDF
+    if (file.originalname.endsWith(".pdf")) {
+      const buffer = fs.readFileSync(file.path);
+      const pdf = await pdfParse(buffer);
+      extractedText = pdf.text;
+    }
+
+    fs.unlinkSync(file.path); // remove temp file
+
+    if (!extractedText.trim()) {
+      return res.status(400).json({ error: "No text extracted" });
+    }
+
+    let created = [];
+
+    // ==========================
+    // SINGLE ARTICLE MODE
+    // ==========================
+    if (mode === "single") {
+
+      const kb = "KB-" + Date.now();
+
+      const doc = await Article.create({
+        articleNumber: kb,
+        title: file.originalname,
+        summary: makeSummary(extractedText),
+        content: extractedText,
+        tags: ["upload"],
+        status: "published"
+      });
+
+      created.push(doc);
+    }
+
+    // ==========================
+    // AUTO SPLIT MODE
+    // ==========================
+    else {
+
+      let num = Number(startNumber || 8000);
+      const sections = splitByTaskType(extractedText);
+
+      if (!sections.length) {
+        return res.status(400).json({ error: "No Task type sections found" });
+      }
+
+      for (const sec of sections) {
+        const doc = await Article.create({
+          articleNumber: normalizeKB(`KB-${num++}`),
+          title: sec.title,
+          summary: makeSummary(sec.content),
+          content: sec.content,
+          tags: ["upload"],
+          status: "published"
+        });
+
+        created.push(doc);
+      }
+    }
+
+    res.json({
+      ok: true,
+      created: created.length
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Upload failed" });
+  }
+});
 
 /* ===============================
    START SERVER
