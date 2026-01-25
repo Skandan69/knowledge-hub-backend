@@ -364,7 +364,7 @@ app.post("/api/kb/upload", upload.single("file"), async (req, res) => {
     // ==========================
     if (mode === "single") {
 
-      const kb = "KB-" + Date.now();
+      const kb = normalizeKB(`KB-${startNumber || Date.now()}`);
 
       const doc = await Article.create({
         articleNumber: kb,
