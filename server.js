@@ -6,6 +6,9 @@ const multer = require("multer");
 const mammoth = require("mammoth");
 const pdfParse = require("pdf-parse");
 const fs = require("fs");
+if (!fs.existsSync("uploads")) {
+  fs.mkdirSync("uploads");
+}
 
 const app = express();
 
