@@ -2,6 +2,10 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
+const multer = require("multer");
+const mammoth = require("mammoth");
+const pdfParse = require("pdf-parse");
+const fs = require("fs");
 
 const app = express();
 
@@ -10,6 +14,7 @@ const app = express();
 ================================ */
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
+const upload = multer({ dest: "uploads/" });
 
 /* ===============================
    DB CONNECT
