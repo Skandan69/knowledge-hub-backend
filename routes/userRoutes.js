@@ -172,5 +172,36 @@ router.post("/forgot-password", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+/* ============================
+   RESET PASSWORD
+============================ */
+
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { token, password } = req.body;
+
+    const user = await User.findOne({
+      resetToken: token,
+      resetTokenExpiry: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid or expired token" });
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    user.password = hashed;
+    user.resetToken = undefined;
+    user.resetTokenExpiry = undefined;
+
+    await user.save();
+
+    res.json({ message: "Password reset successfully" });
+
+  } catch (err) {
+    res.status(500).json({ message: "Reset failed" });
+  }
+});
 
 module.exports = router;
