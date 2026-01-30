@@ -1,5 +1,6 @@
 require("dotenv").config();
 const adminRoutes = require("./routes/adminRoutes");
+const userRoutes = require("./routes/userRoutes");
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
@@ -98,6 +99,7 @@ app.get("/", (req, res) => {
   res.json({ ok: true, message: "Knowledge Hub Backend is running ✅" });
 });
 
+app.use("/api/users", userRoutes);
 /* --------------------------------
    SEARCH
 --------------------------------- */
