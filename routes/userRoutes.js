@@ -114,3 +114,28 @@ router.post("/login", async (req, res) => {
 });
 
 module.exports = router;
+/* ============================
+   VERIFY EMAIL
+============================ */
+
+router.get("/verify/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const user = await User.findOne({ verificationToken: token });
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid or expired token" });
+    }
+
+    user.emailVerified = true;
+    user.verificationToken = undefined;
+
+    await user.save();
+
+    res.json({ message: "Email verified successfully" });
+
+  } catch (err) {
+    res.status(500).json({ message: "Verification failed" });
+  }
+});
