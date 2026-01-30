@@ -8,26 +8,34 @@ const User = require("../models/User");
 const router = express.Router();
 
 /* ============================
-   REGISTER USER + SEND VERIFY EMAIL
+   EMAIL TRANSPORTER (REUSE)
+============================ */
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+/* ============================
+   REGISTER USER + VERIFY EMAIL
 ============================ */
 
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Check if user exists
     const exists = await User.findOne({ email });
     if (exists) {
       return res.status(400).json({ message: "User already exists" });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create verification token
     const verificationToken = crypto.randomBytes(32).toString("hex");
 
-    // Create user
     const user = await User.create({
       name,
       email,
@@ -36,26 +44,15 @@ router.post("/register", async (req, res) => {
       emailVerified: false
     });
 
-    // Setup mail transporter
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      }
-    });
-
-    // Verification link
     const verifyLink = `https://lightblue-badger-166289.hostingersite.com/user/verify.html?token=${verificationToken}`;
 
-    // Send email
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: user.email,
       subject: "Verify your Knowledge Hub account",
       html: `
         <h3>Welcome to Knowledge Hub</h3>
-        <p>Please verify your email by clicking below:</p>
+        <p>Please verify your email:</p>
         <a href="${verifyLink}">Verify Email</a>
       `
     });
@@ -83,7 +80,6 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
-    // Optional safety: block login if not verified
     if (!user.emailVerified) {
       return res.status(403).json({ message: "Please verify your email first" });
     }
@@ -113,16 +109,13 @@ router.post("/login", async (req, res) => {
   }
 });
 
-module.exports = router;
 /* ============================
    VERIFY EMAIL
 ============================ */
 
 router.get("/verify/:token", async (req, res) => {
   try {
-    const { token } = req.params;
-
-    const user = await User.findOne({ verificationToken: token });
+    const user = await User.findOne({ verificationToken: req.params.token });
 
     if (!user) {
       return res.status(400).json({ message: "Invalid or expired token" });
@@ -130,7 +123,6 @@ router.get("/verify/:token", async (req, res) => {
 
     user.emailVerified = true;
     user.verificationToken = undefined;
-
     await user.save();
 
     res.json({ message: "Email verified successfully" });
@@ -139,3 +131,46 @@ router.get("/verify/:token", async (req, res) => {
     res.status(500).json({ message: "Verification failed" });
   }
 });
+
+/* ============================
+   FORGOT PASSWORD
+============================ */
+
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.json({ message: "If account exists, reset link sent" });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+
+    user.resetToken = resetToken;
+    user.resetTokenExpiry = Date.now() + 15 * 60 * 1000;
+    await user.save();
+
+    const resetLink = `https://lightblue-badger-166289.hostingersite.com/user/reset.html?token=${resetToken}`;
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: user.email,
+      subject: "Reset your Knowledge Hub password",
+      html: `
+        <h3>Password Reset</h3>
+        <p>Click below to reset your password:</p>
+        <a href="${resetLink}">Reset Password</a>
+        <p>This link expires in 15 minutes.</p>
+      `
+    });
+
+    res.json({ message: "If account exists, reset link sent" });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+module.exports = router;
