@@ -1,4 +1,5 @@
 require("dotenv").config();
+const adminRoutes = require("./routes/adminRoutes");
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
@@ -15,9 +16,11 @@ const app = express();
 /* ===============================
    MIDDLEWARE
 ================================ */
+const auth = require("./middleware/auth");
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 const upload = multer({ dest: "uploads/" });
+app.use("/api/admin", adminRoutes);
 
 /* ===============================
    DB CONNECT
@@ -158,7 +161,7 @@ app.get("/api/kb/articles", async (req, res) => {
 /* --------------------------------
    CREATE ARTICLE
 --------------------------------- */
-app.post("/api/kb/article", async (req, res) => {
+app.post("/api/kb/article", auth, async (req, res) => {
   try {
     const { articleNumber, title, summary, content, tags, status } = req.body || {};
 
@@ -188,7 +191,7 @@ app.post("/api/kb/article", async (req, res) => {
 /* --------------------------------
    👉 UPDATE ARTICLE
 --------------------------------- */
-app.put("/api/kb/article/:articleNumber", async (req, res) => {
+app.put("/api/kb/article/:articleNumber", auth, async (req, res) => {
   try {
     const articleNumber = normalizeKB(req.params.articleNumber);
 
@@ -212,7 +215,7 @@ app.put("/api/kb/article/:articleNumber", async (req, res) => {
 /* --------------------------------
    👉 DELETE ARTICLE
 --------------------------------- */
-app.delete("/api/kb/article/:articleNumber", async (req, res) => {
+app.delete("/api/kb/article/:articleNumber", auth, async (req, res) => {
   try {
     const articleNumber = normalizeKB(req.params.articleNumber);
 
@@ -229,7 +232,7 @@ app.delete("/api/kb/article/:articleNumber", async (req, res) => {
 /* --------------------------------
    BULK INSERT
 --------------------------------- */
-app.post("/api/kb/bulk", async (req, res) => {
+app.post("/api/kb/bulk", auth, async (req, res) => {
   try {
     const { items } = req.body || {};
 
@@ -257,7 +260,7 @@ app.post("/api/kb/bulk", async (req, res) => {
 /* --------------------------------
    IMPORT SOP TEXT
 --------------------------------- */
-app.post("/api/kb/import-text", async (req, res) => {
+app.post("/api/kb/import-text", auth, async (req, res) => {
   try {
     const { text, startNumber, kbPrefix, tags } = req.body || {};
     if (!text) return res.status(400).json({ error: "text required" });
@@ -329,7 +332,7 @@ app.post("/api/kb/seed", async (req, res) => {
    📄 UPLOAD WORD / PDF WITH DROPDOWN LOGIC
 --------------------------------- */
 
-app.post("/api/kb/upload", upload.single("file"), async (req, res) => {
+app.post("/api/kb/upload", auth, upload.single("file"), async (req, res) => {
   try {
     const { mode, startNumber } = req.body;
     const file = req.file;
@@ -364,7 +367,7 @@ app.post("/api/kb/upload", upload.single("file"), async (req, res) => {
     // ==========================
     if (mode === "single") {
 
-      const kb = "KB-" + Date.now();
+      const kb = normalizeKB(`KB-${startNumber || Date.now()}`);
 
       const doc = await Article.create({
         articleNumber: kb,
