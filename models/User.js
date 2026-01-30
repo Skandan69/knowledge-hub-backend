@@ -16,15 +16,25 @@ const UserSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  
-emailVerified: {
-  type: Boolean,
-  default: false
-},
 
-verificationToken: {
-  type: String
-},
+  emailVerified: {
+    type: Boolean,
+    default: false
+  },
+
+  verificationToken: {
+    type: String
+  },
+
+  // 🔑 Forgot password fields
+  resetToken: {
+    type: String
+  },
+
+  resetTokenExpiry: {
+    type: Date
+  },
+
   role: {
     type: String,
     default: "user"
