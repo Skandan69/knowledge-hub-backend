@@ -4,34 +4,23 @@ const userRoutes = require("./routes/userRoutes");
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
-const nodemailer = require("nodemailer");
-
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
 
 const multer = require("multer");
 const mammoth = require("mammoth");
 const pdfParse = require("pdf-parse");
 const fs = require("fs");
-if (!fs.existsSync("uploads")) {
-  fs.mkdirSync("uploads");
-}
+
+if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
 
 const app = express();
-
-/* ===============================
-   MIDDLEWARE
-================================ */
 const auth = require("./middleware/auth");
+
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 const upload = multer({ dest: "uploads/" });
+
 app.use("/api/admin", adminRoutes);
+app.use("/api/users", userRoutes);
 
 /* ===============================
    DB CONNECT
@@ -39,7 +28,7 @@ app.use("/api/admin", adminRoutes);
 async function connectDB() {
   const uri = process.env.MONGO_URI;
   if (!uri) {
-    console.error("❌ MONGO_URI missing in environment variables");
+    console.error("❌ MONGO_URI missing");
     process.exit(1);
   }
 
@@ -48,19 +37,17 @@ async function connectDB() {
 }
 
 /* ===============================
-   MODEL
+   ARTICLE MODEL
 ================================ */
-const articleSchema = new mongoose.Schema(
-  {
-    articleNumber: { type: String, unique: true, required: true },
-    title: { type: String, required: true },
-    summary: { type: String, default: "" },
-    content: { type: String, default: "" },
-    tags: [{ type: String }],
-    status: { type: String, default: "published" }
-  },
-  { timestamps: true }
-);
+
+const articleSchema = new mongoose.Schema({
+  articleNumber: { type: String, unique: true, required: true },
+  title: String,
+  summary: String,
+  content: String,
+  tags: [String],
+  status: { type: String, default: "published" }
+}, { timestamps: true });
 
 articleSchema.index({
   title: "text",
@@ -74,372 +61,256 @@ const Article = mongoose.model("Article", articleSchema);
 /* ===============================
    HELPERS
 ================================ */
-function normalizeKB(articleNumber) {
-  return String(articleNumber || "").trim().toUpperCase();
-}
 
 function makeSummary(content) {
-  const txt = String(content || "").trim().replace(/\s+/g, " ");
+  const txt = String(content || "").replace(/\s+/g," ").trim();
   if (!txt) return "";
-  return txt.length > 140 ? txt.slice(0, 140) + "..." : txt;
+  return txt.length > 140 ? txt.slice(0,140) + "..." : txt;
 }
 
 function splitByTaskType(text) {
-  const raw = String(text || "").trim();
-  if (!raw) return [];
-
-  const parts = raw.split(/(?:^|\n)\s*(?:\d+\.\s*)?Task type:\s*/gi);
-  const blocks = parts.slice(1).map((p) => p.trim()).filter(Boolean);
-
-  return blocks.map((block) => {
-    const lines = block.split("\n").map((l) => l.trim());
-    const title = (lines[0] || "Untitled").replace(/\.$/, "").trim();
-    const content = lines.slice(1).join("\n").trim();
-
-    return { title, content };
+  const parts = text.split(/(?:^|\n)\s*(?:\d+\.\s*)?Task type:\s*/gi);
+  return parts.slice(1).map(p => {
+    const lines = p.trim().split("\n");
+    return {
+      title: lines[0]?.trim() || "Untitled",
+      content: lines.slice(1).join("\n").trim()
+    };
   });
+}
+
+/* ===============================
+   AUTO KB GENERATOR ⭐
+================================ */
+
+async function getNextKB() {
+  const last = await Article.findOne()
+    .sort({ articleNumber: -1 })
+    .lean();
+
+  if (!last) return "KB-1001";
+
+  const num = parseInt(last.articleNumber.replace("KB-",""));
+  return `KB-${num + 1}`;
 }
 
 /* ===============================
    ROUTES
 ================================ */
 
-// Health check
-app.get("/", (req, res) => {
-  res.json({ ok: true, message: "Knowledge Hub Backend is running ✅" });
+// Health
+app.get("/", (req,res)=>{
+  res.json({ ok:true, message:"Backend running ✅"});
 });
 
-app.use("/api/users", userRoutes);
 /* --------------------------------
    SEARCH
---------------------------------- */
-app.get("/api/kb/search", async (req, res) => {
-  try {
-    const q = (req.query.q || "").trim();
-    if (!q) return res.json({ items: [] });
+-------------------------------- */
+app.get("/api/kb/search", async (req,res)=>{
+  const q = (req.query.q || "").trim();
+  if (!q) return res.json({ items: [] });
 
-    const items = await Article.find(
-      {
-        status: "published",
-        $or: [{ articleNumber: new RegExp(q, "i") }, { $text: { $search: q } }]
-      },
-      { score: { $meta: "textScore" } }
-    )
-      .sort({ score: { $meta: "textScore" }, updatedAt: -1 })
-      .limit(50)
-      .lean();
+  const items = await Article.find({
+    status:"published",
+    $or:[
+      { articleNumber: new RegExp(q,"i") },
+      { $text:{ $search:q } }
+    ]
+  }).limit(50).lean();
 
-    res.json({ items });
-  } catch (err) {
-    res.status(500).json({ error: "Search failed" });
-  }
+  res.json({ items });
 });
 
 /* --------------------------------
-   GET SINGLE ARTICLE
---------------------------------- */
-app.get("/api/kb/article/:articleNumber", async (req, res) => {
-  try {
-    const articleNumber = normalizeKB(req.params.articleNumber);
-
-    const item = await Article.findOne({
-      status: "published",
-      articleNumber
-    }).lean();
-
-    if (!item) return res.status(404).json({ error: "Article not found" });
-
-    res.json(item);
-  } catch (err) {
-    res.status(500).json({ error: "Fetch failed" });
-  }
+   GET ALL (ADMIN)
+-------------------------------- */
+app.get("/api/kb/articles", async (req,res)=>{
+  const items = await Article.find().sort({articleNumber:1}).lean();
+  res.json({ items });
 });
 
 /* --------------------------------
-   👉 GET ALL ARTICLES (ADMIN CMS)
---------------------------------- */
-app.get("/api/kb/articles", async (req, res) => {
-  try {
-    const items = await Article.find()
-      .sort({ articleNumber: 1 })
-      .lean();
+   GET SINGLE
+-------------------------------- */
+app.get("/api/kb/article/:kb", async (req,res)=>{
+  const item = await Article.findOne({
+    articleNumber: req.params.kb,
+    status:"published"
+  }).lean();
 
-    res.json({ items });
-  } catch (err) {
-    res.status(500).json({ error: "Fetch all failed" });
-  }
+  if (!item) return res.status(404).json({ error:"Not found" });
+
+  res.json(item);
 });
 
 /* --------------------------------
-   CREATE ARTICLE
---------------------------------- */
-app.post("/api/kb/article", auth, async (req, res) => {
-  try {
-    const { articleNumber, title, summary, content, tags, status } = req.body || {};
+   CREATE ARTICLE (AUTO KB)
+-------------------------------- */
+app.post("/api/kb/article", auth, async (req,res)=>{
+  try{
+    const { title, summary, content, tags, status } = req.body;
 
-    const num = normalizeKB(articleNumber);
-    if (!num) return res.status(400).json({ error: "articleNumber required" });
-    if (!title) return res.status(400).json({ error: "title required" });
+    if(!title) return res.status(400).json({error:"Title required"});
+
+    const kb = await getNextKB();
 
     const doc = await Article.create({
-      articleNumber: num,
-      title: title.trim(),
-      summary: summary ? summary.trim() : makeSummary(content),
-      content: content || "",
-      tags: Array.isArray(tags) ? tags : [],
+      articleNumber: kb,
+      title,
+      summary: summary || makeSummary(content),
+      content,
+      tags: tags || [],
       status: status || "published"
     });
 
-    res.status(201).json({ ok: true, item: doc });
-  } catch (err) {
-    if (String(err).includes("E11000")) {
-      return res.status(409).json({ error: "Duplicate KB number" });
-    }
+    res.json({ ok:true, item: doc });
 
-    res.status(500).json({ error: "Create failed" });
+  }catch(err){
+    res.status(500).json({ error:"Create failed" });
   }
 });
 
 /* --------------------------------
-   👉 UPDATE ARTICLE
---------------------------------- */
-app.put("/api/kb/article/:articleNumber", auth, async (req, res) => {
-  try {
-    const articleNumber = normalizeKB(req.params.articleNumber);
+   UPDATE
+-------------------------------- */
+app.put("/api/kb/article/:kb", auth, async (req,res)=>{
 
-    const updates = { ...req.body };
-    delete updates.articleNumber;
+  const updated = await Article.findOneAndUpdate(
+    { articleNumber: req.params.kb },
+    { $set: req.body },
+    { new:true }
+  ).lean();
 
-    const updated = await Article.findOneAndUpdate(
-      { articleNumber },
-      { $set: updates },
-      { new: true }
-    ).lean();
+  if(!updated) return res.status(404).json({error:"Not found"});
 
-    if (!updated) return res.status(404).json({ error: "Article not found" });
-
-    res.json({ ok: true, item: updated });
-  } catch (err) {
-    res.status(500).json({ error: "Update failed" });
-  }
+  res.json({ ok:true, item: updated });
 });
 
 /* --------------------------------
-   👉 DELETE ARTICLE
---------------------------------- */
-app.delete("/api/kb/article/:articleNumber", auth, async (req, res) => {
-  try {
-    const articleNumber = normalizeKB(req.params.articleNumber);
+   DELETE
+-------------------------------- */
+app.delete("/api/kb/article/:kb", auth, async (req,res)=>{
 
-    const deleted = await Article.findOneAndDelete({ articleNumber }).lean();
+  const del = await Article.findOneAndDelete({
+    articleNumber: req.params.kb
+  });
 
-    if (!deleted) return res.status(404).json({ error: "Article not found" });
+  if(!del) return res.status(404).json({error:"Not found"});
 
-    res.json({ ok: true, message: "Article deleted" });
-  } catch (err) {
-    res.status(500).json({ error: "Delete failed" });
-  }
+  res.json({ ok:true });
 });
 
 /* --------------------------------
-   BULK INSERT
---------------------------------- */
-app.post("/api/kb/bulk", auth, async (req, res) => {
-  try {
-    const { items } = req.body || {};
+   SOP TEXT IMPORT (AUTO KB)
+-------------------------------- */
+app.post("/api/kb/import-text", auth, async (req,res)=>{
 
-    if (!Array.isArray(items) || !items.length) {
-      return res.status(400).json({ error: "items required" });
-    }
+  const { text, tags } = req.body;
+  if(!text) return res.status(400).json({error:"Text required"});
 
-    const normalized = items.map((it) => ({
-      articleNumber: normalizeKB(it.articleNumber),
-      title: it.title.trim(),
-      summary: it.summary ? it.summary.trim() : makeSummary(it.content),
-      content: it.content || "",
-      tags: Array.isArray(it.tags) ? it.tags : [],
-      status: it.status || "published"
-    }));
+  const sections = splitByTaskType(text);
+  if(!sections.length) return res.status(400).json({error:"No sections"});
 
-    const inserted = await Article.insertMany(normalized, { ordered: false });
+  let kb = await getNextKB();
+  let num = parseInt(kb.replace("KB-",""));
 
-    res.json({ ok: true, insertedCount: inserted.length });
-  } catch (err) {
-    res.status(500).json({ error: "Bulk insert failed" });
-  }
+  const items = sections.map(sec=>({
+    articleNumber:`KB-${num++}`,
+    title:sec.title,
+    summary:makeSummary(sec.content),
+    content:sec.content,
+    tags: tags || ["bulk"],
+    status:"published"
+  }));
+
+  const inserted = await Article.insertMany(items);
+
+  res.json({ ok:true, created: inserted.length });
 });
 
 /* --------------------------------
-   IMPORT SOP TEXT
---------------------------------- */
-app.post("/api/kb/import-text", auth, async (req, res) => {
-  try {
-    const { text, startNumber, kbPrefix, tags } = req.body || {};
-    if (!text) return res.status(400).json({ error: "text required" });
+   WORD / PDF UPLOAD (AUTO KB)
+-------------------------------- */
+app.post("/api/kb/upload", auth, upload.single("file"), async (req,res)=>{
+  try{
 
-    let num = Number(startNumber || 7001);
-    const prefix = kbPrefix || "KB-";
-
-    const sections = splitByTaskType(text);
-
-    if (!sections.length) {
-      return res.status(400).json({ error: "No Task type sections found" });
-    }
-
-    const items = sections.map((s) => ({
-      articleNumber: normalizeKB(`${prefix}${num++}`),
-      title: s.title,
-      summary: makeSummary(s.content),
-      content: s.content,
-      tags: Array.isArray(tags) ? tags : ["bulk"],
-      status: "published"
-    }));
-
-    const inserted = await Article.insertMany(items, { ordered: false });
-
-    res.json({
-      ok: true,
-      created: inserted.length,
-      firstKB: inserted[0].articleNumber,
-      lastKB: inserted[inserted.length - 1].articleNumber
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Import failed" });
-  }
-});
-
-/* --------------------------------
-   SEED DEMO
---------------------------------- */
-app.post("/api/kb/seed", async (req, res) => {
-  try {
-    const count = await Article.countDocuments();
-    if (count) return res.json({ message: "Already seeded" });
-
-    await Article.insertMany([
-      {
-        articleNumber: "KB-1001",
-        title: "How to Reset Password",
-        summary: "Steps to reset password.",
-        content: "Click forgot password and follow email instructions.",
-        tags: ["password"],
-        status: "published"
-      },
-      {
-        articleNumber: "KB-1002",
-        title: "Refund Not Received",
-        summary: "What to do if refund delayed.",
-        content: "Wait 5-7 days then contact support.",
-        tags: ["refund"],
-        status: "published"
-      }
-    ]);
-
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: "Seed failed" });
-  }
-});
-/* --------------------------------
-   📄 UPLOAD WORD / PDF WITH DROPDOWN LOGIC
---------------------------------- */
-
-app.post("/api/kb/upload", auth, upload.single("file"), async (req, res) => {
-  try {
-    const { mode, startNumber } = req.body;
     const file = req.file;
+    const { mode } = req.body;
 
-    if (!file) return res.status(400).json({ error: "No file uploaded" });
+    if(!file) return res.status(400).json({error:"No file"});
 
-    let extractedText = "";
+    let text="";
 
-    // WORD
-    if (file.originalname.endsWith(".docx")) {
-      const result = await mammoth.extractRawText({ path: file.path });
-      extractedText = result.value;
+    if(file.originalname.endsWith(".docx")){
+      const r = await mammoth.extractRawText({ path:file.path });
+      text = r.value;
     }
 
-    // PDF
-    if (file.originalname.endsWith(".pdf")) {
-      const buffer = fs.readFileSync(file.path);
-      const pdf = await pdfParse(buffer);
-      extractedText = pdf.text;
+    if(file.originalname.endsWith(".pdf")){
+      const buf = fs.readFileSync(file.path);
+      const pdf = await pdfParse(buf);
+      text = pdf.text;
     }
 
-    fs.unlinkSync(file.path); // remove temp file
+    fs.unlinkSync(file.path);
 
-    if (!extractedText.trim()) {
-      return res.status(400).json({ error: "No text extracted" });
-    }
+    if(!text.trim()) return res.status(400).json({error:"No text"});
 
-    let created = [];
+    let created=[];
 
-    // ==========================
-    // SINGLE ARTICLE MODE
-    // ==========================
-    if (mode === "single") {
+    // SINGLE
+    if(mode === "single"){
 
-      const kb = normalizeKB(`KB-${startNumber || Date.now()}`);
+      const kb = await getNextKB();
 
       const doc = await Article.create({
         articleNumber: kb,
-        title: file.originalname,
-        summary: makeSummary(extractedText),
-        content: extractedText,
-        tags: ["upload"],
-        status: "published"
+        title:file.originalname,
+        summary:makeSummary(text),
+        content:text,
+        tags:["upload"],
+        status:"published"
       });
 
       created.push(doc);
     }
 
-    // ==========================
-    // AUTO SPLIT MODE
-    // ==========================
-    else {
+    // SPLIT
+    else{
 
-      let num = Number(startNumber || 8000);
-      const sections = splitByTaskType(extractedText);
+      const sections = splitByTaskType(text);
+      if(!sections.length) return res.status(400).json({error:"No sections"});
 
-      if (!sections.length) {
-        return res.status(400).json({ error: "No Task type sections found" });
-      }
+      let next = await getNextKB();
+      let num = parseInt(next.replace("KB-",""));
 
-      for (const sec of sections) {
+      for(const sec of sections){
         const doc = await Article.create({
-          articleNumber: normalizeKB(`KB-${num++}`),
-          title: sec.title,
-          summary: makeSummary(sec.content),
-          content: sec.content,
-          tags: ["upload"],
-          status: "published"
+          articleNumber:`KB-${num++}`,
+          title:sec.title,
+          summary:makeSummary(sec.content),
+          content:sec.content,
+          tags:["upload"],
+          status:"published"
         });
-
         created.push(doc);
       }
     }
 
-    res.json({
-      ok: true,
-      created: created.length
-    });
+    res.json({ ok:true, created: created.length });
 
-  } catch (err) {
+  }catch(err){
     console.error(err);
-    res.status(500).json({ error: "Upload failed" });
+    res.status(500).json({ error:"Upload failed" });
   }
 });
 
 /* ===============================
-   START SERVER
+   START
 ================================ */
+
 const PORT = process.env.PORT || 3000;
 
-connectDB()
-  .then(() => {
-    app.listen(PORT, () => console.log(`✅ Server running on ${PORT}`));
-  })
-  .catch((err) => {
-    console.error("❌ DB connection failed", err);
-    process.exit(1);
-  });
+connectDB().then(()=>{
+  app.listen(PORT, ()=>console.log("✅ Server running on",PORT));
+});
