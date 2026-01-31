@@ -307,6 +307,46 @@ if(file.originalname.endsWith(".docx")){
 
   res.json({ ok:true, created });
 });
+/* ===============================
+   ONE TIME SUPER ADMIN SETUP
+================================ */
+
+const bcrypt = require("bcryptjs");
+const Admin = require("./models/Admin");
+
+app.post("/setup-superadmin", async (req, res) => {
+
+  const { name, email, password } = req.body;
+
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: "All fields required" });
+  }
+
+  // Check if super admin already exists
+  const exists = await Admin.findOne({ role: "superadmin" });
+
+  if (exists) {
+    return res.status(400).json({ error: "Super Admin already created" });
+  }
+
+  const hash = await bcrypt.hash(password, 10);
+
+  const superAdmin = await Admin.create({
+    name,
+    email,
+    password: hash,
+    role: "superadmin"
+  });
+
+  res.json({
+    ok: true,
+    message: "Super Admin created successfully",
+    admin: {
+      email: superAdmin.email,
+      role: superAdmin.role
+    }
+  });
+});
 
 /* ===============================
    START
