@@ -6,6 +6,7 @@ const multer = require("multer");
 const mammoth = require("mammoth");
 const pdfParse = require("pdf-parse");
 const fs = require("fs");
+const Counter = require("./models/Counter");
 
 const adminRoutes = require("./routes/adminRoutes");
 const userRoutes = require("./routes/userRoutes");
@@ -61,12 +62,14 @@ function makeSummary(content){
 
 // AUTO NEXT KB NUMBER
 async function generateNextKB(){
-  const last = await Article.findOne().sort({ createdAt:-1 });
 
-  if(!last) return "KB-1001";
+  const counter = await Counter.findOneAndUpdate(
+    { name: "kb" },
+    { $inc: { value: 1 } },
+    { new: true, upsert: true }
+  );
 
-  const num = parseInt(last.articleNumber.replace("KB-","")) || 1000;
-  return `KB-${num+1}`;
+  return "KB-" + String(counter.value).padStart(6, "0");
 }
 
 function splitByTaskType(text){
