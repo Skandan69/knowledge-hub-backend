@@ -72,10 +72,13 @@ async function generateNextKB(){
   return "KB-" + String(counter.value).padStart(6, "0");
 }
 
+// OLD PDF / TEXT SPLIT
 function splitByTaskType(text){
   const parts = text.split(/(?:^|\n)\s*(?:\d+\.\s*)?Task type:\s*/gi);
+
   return parts.slice(1).map(p=>{
     const lines = p.trim().split("\n");
+
     return {
       title: lines[0] || "Untitled",
       content: lines.slice(1).join("\n")
@@ -83,6 +86,32 @@ function splitByTaskType(text){
   });
 }
 
+// NEW WORD HEADING SPLIT
+function splitByHeadings(html){
+
+  const parts = html.split(/<h1[^>]*>/i).slice(1);
+
+  return parts.map(block => {
+
+    const endTitle = block.indexOf("</h1>");
+
+    const title = block
+      .slice(0, endTitle)
+      .replace(/<[^>]+>/g,"")
+      .trim();
+
+    const body = block
+      .slice(endTitle + 5)
+      .replace(/<[^>]+>/g,"")
+      .trim();
+
+    return {
+      title: title || "Untitled",
+      content: body
+    };
+  });
+}
+  
 /* ===============================
    ROUTES
 ================================ */
@@ -218,10 +247,10 @@ app.post("/api/kb/upload", auth, upload.single("file"), async(req,res)=>{
 
   let text="";
 
-  if(file.originalname.endsWith(".docx")){
-    const r = await mammoth.extractRawText({ path:file.path });
-    text = r.value;
-  }
+ if(file.originalname.endsWith(".docx")){
+  const r = await mammoth.convertToHtml({ path: file.path });
+  text = r.value;
+}
 
   if(file.originalname.endsWith(".pdf")){
     const buf = fs.readFileSync(file.path);
@@ -250,7 +279,13 @@ app.post("/api/kb/upload", auth, upload.single("file"), async(req,res)=>{
 
   // SPLIT
   else{
-    const sections = splitByTaskType(text);
+    let sections = [];
+
+if(file.originalname.endsWith(".docx")){
+   sections = splitByHeadings(text);
+} else {
+   sections = splitByTaskType(text);
+}
     for(const sec of sections){
       const kb = await generateNextKB();
       await Article.create({
