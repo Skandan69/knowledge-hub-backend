@@ -11,6 +11,7 @@ const Counter = require("./models/Counter");
 const adminRoutes = require("./routes/adminRoutes");
 const userRoutes = require("./routes/userRoutes");
 const auth = require("./middleware/auth");
+const superAdminRoutes = require("./routes/superAdminRoutes");
 
 const app = express();
 app.use(cors());
@@ -123,7 +124,7 @@ app.get("/",(req,res)=>{
 
 app.use("/api/admin", adminRoutes);
 app.use("/api/users", userRoutes);
-
+app.use("/api/superadmin", superAdminRoutes);
 /* ===============================
    SEARCH
 ================================ */
