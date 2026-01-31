@@ -66,5 +66,45 @@ router.post("/admins", auth, superAdminAuth, async(req,res)=>{
 
   res.json({ ok:true, admin });
 });
+/* ===============================
+   SUPER ADMIN LOGIN
+================================ */
 
+router.post("/login", async (req, res) => {
+
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password required" });
+  }
+
+  const admin = await Admin.findOne({ email, role: "superadmin" });
+
+  if (!admin) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  const match = await bcrypt.compare(password, admin.password);
+
+  if (!match) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  const jwt = require("jsonwebtoken");
+
+  const token = jwt.sign(
+    { id: admin._id, role: admin.role },
+    process.env.JWT_SECRET,
+    { expiresIn: "1d" }
+  );
+
+  res.json({
+    ok: true,
+    token,
+    admin: {
+      email: admin.email,
+      role: admin.role
+    }
+  });
+});
 module.exports = router;
