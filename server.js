@@ -38,6 +38,7 @@ const articleSchema = new mongoose.Schema({
   title: String,
   summary: String,
   content: String,
+  category: { type: String, default: "General" }, // NEW
   tags: [String],
   status: { type: String, default: "published" }
 },{ timestamps:true });
@@ -166,20 +167,21 @@ app.get("/api/kb/article/:kb", async(req,res)=>{
 ================================ */
 
 app.post("/api/kb/article", auth, async(req,res)=>{
-  const { title, summary, content, tags, status } = req.body;
+  const { title, summary, content, tags, status, category } = req.body;
 
   if(!title) return res.status(400).json({ error:"Title required" });
 
   const kb = await generateNextKB();
 
-  const doc = await Article.create({
-    articleNumber: kb,
-    title,
-    summary: summary || makeSummary(content),
-    content,
-    tags: tags || [],
-    status: status || "published"
-  });
+ const doc = await Article.create({
+  articleNumber: kb,
+  title,
+  summary: summary || makeSummary(content),
+  content,
+  category: category || "General",
+  tags: tags || [],
+  status: status || "published"
+});
 
   res.json({ ok:true, item:doc });
 });
@@ -222,13 +224,14 @@ app.post("/api/kb/import-text", auth, async(req,res)=>{
   for(const sec of sections){
     const kb = await generateNextKB();
     await Article.create({
-      articleNumber: kb,
-      title: sec.title,
-      summary: makeSummary(sec.content),
-      content: sec.content,
-      tags:["bulk"],
-      status:"published"
-    });
+  articleNumber: kb,
+  title: sec.title,
+  summary: makeSummary(sec.content),
+  content: sec.content,
+  category: "General",
+  tags:["bulk"],
+  status:"published"
+});
     created++;
   }
 
@@ -267,13 +270,14 @@ app.post("/api/kb/upload", auth, upload.single("file"), async(req,res)=>{
   // SINGLE
   if(mode==="single"){
     const kb = await generateNextKB();
-    await Article.create({
-      articleNumber: kb,
-      title: file.originalname,
-      summary: makeSummary(text),
-      content:text,
-      tags:["upload"]
-    });
+   await Article.create({
+  articleNumber: kb,
+  title: file.originalname,
+  summary: makeSummary(text),
+  content:text,
+  category: "General",
+  tags:["upload"]
+});
     created=1;
   }
 
@@ -288,13 +292,14 @@ if(file.originalname.endsWith(".docx")){
 }
     for(const sec of sections){
       const kb = await generateNextKB();
-      await Article.create({
-        articleNumber: kb,
-        title: sec.title,
-        summary: makeSummary(sec.content),
-        content: sec.content,
-        tags:["upload"]
-      });
+     await Article.create({
+  articleNumber: kb,
+  title: sec.title,
+  summary: makeSummary(sec.content),
+  content: sec.content,
+  category: "General",
+  tags:["upload"]
+});
       created++;
     }
   }
