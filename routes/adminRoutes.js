@@ -15,83 +15,112 @@ const router = express.Router();
 
 router.post("/login", async (req, res) => {
 
-  const { email, password } = req.body;
+  try {
 
-  if (!email || !password)
-    return res.status(400).json({ error: "Required" });
+    const { email, password } = req.body;
 
-  const admin = await Admin.findOne({ email });
-
-  if (!admin)
-    return res.status(401).json({ error: "Invalid" });
-
-  const match = await bcrypt.compare(password, admin.password);
-
-  if (!match)
-    return res.status(401).json({ error: "Invalid" });
-
-  const token = jwt.sign(
-    {
-      id: admin._id,
-      role: admin.role,
-      department: admin.department
-    },
-    process.env.JWT_SECRET || "knowledgehubsecret",
-    { expiresIn: "8h" }
-  );
-
-  res.json({
-    ok: true,
-    token,
-    admin: {
-      name: admin.name,
-      email: admin.email,
-      role: admin.role,
-      department: admin.department
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password required" });
     }
-  });
+
+    const admin = await Admin.findOne({ email });
+
+    if (!admin) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const match = await bcrypt.compare(password, admin.password);
+
+    if (!match) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    // ✅ JWT includes department + role
+    const token = jwt.sign(
+      {
+        id: admin._id,
+        role: admin.role,
+        department: admin.department
+      },
+      process.env.JWT_SECRET || "knowledgehubsecret",
+      { expiresIn: "8h" }
+    );
+
+    res.json({
+      ok: true,
+      token,
+      admin: {
+        id: admin._id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        department: admin.department
+      }
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
+
 /* ===============================
-   GET USERS (OWN DEPARTMENT)
+   GET PENDING USERS (ALL ADMINS SEE SAME LIST)
 ================================ */
 
 router.get("/users", auth, async (req, res) => {
 
-  if (req.user.role !== "admin")
-    return res.status(403).json({ error: "Admins only" });
+  try {
 
-  const users = await User.find({
-    department: req.user.department
-  })
-    .select("name email department approved createdAt")
-    .sort({ createdAt: -1 })
-    .lean();
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Admins only" });
+    }
 
-  res.json({ items: users });
+    // ✅ Only users waiting for approval
+    const users = await User.find({
+      approved: false
+    })
+      .select("name email approved createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({ items: users });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
+
 /* ===============================
-   APPROVE USER (OWN DEPT)
+   APPROVE USER (AUTO ASSIGN DEPARTMENT)
 ================================ */
 
 router.put("/users/:id/approve", auth, async (req, res) => {
 
-  if (req.user.role !== "admin")
-    return res.status(403).json({ error: "Admins only" });
+  try {
 
-  const user = await User.findById(req.params.id);
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Admins only" });
+    }
 
-  if (!user)
-    return res.status(404).json({ error: "Not found" });
+    const user = await User.findById(req.params.id);
 
-  if (user.department !== req.user.department)
-    return res.status(403).json({ error: "Not allowed" });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
 
-  user.approved = true;
-  await user.save();
+    // ✅ Assign admin's department automatically
+    user.department = req.user.department;
+    user.approved = true;
 
-  res.json({ ok: true });
+    await user.save();
+
+    res.json({ ok: true, user });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
