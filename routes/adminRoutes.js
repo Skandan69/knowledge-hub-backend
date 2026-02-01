@@ -4,7 +4,6 @@ const jwt = require("jsonwebtoken");
 
 const Admin = require("../models/Admin");
 const User = require("../models/User");
-const Article = require("../models/Article");
 
 const auth = require("../middleware/auth");
 
@@ -18,13 +17,18 @@ router.post("/login", async (req, res) => {
 
   const { email, password } = req.body;
 
+  if (!email || !password)
+    return res.status(400).json({ error: "Required" });
+
   const admin = await Admin.findOne({ email });
 
-  if (!admin) return res.status(401).json({ error: "Invalid credentials" });
+  if (!admin)
+    return res.status(401).json({ error: "Invalid" });
 
   const match = await bcrypt.compare(password, admin.password);
 
-  if (!match) return res.status(401).json({ error: "Invalid credentials" });
+  if (!match)
+    return res.status(401).json({ error: "Invalid" });
 
   const token = jwt.sign(
     {
@@ -37,96 +41,57 @@ router.post("/login", async (req, res) => {
   );
 
   res.json({
-    ok:true,
+    ok: true,
     token,
-    admin:{
+    admin: {
       name: admin.name,
+      email: admin.email,
+      role: admin.role,
       department: admin.department
     }
   });
 });
 
 /* ===============================
-   ADMIN → GET OWN DEPARTMENT ARTICLES
+   GET USERS (OWN DEPARTMENT)
 ================================ */
 
-router.get("/articles", auth, async (req,res)=>{
+router.get("/users", auth, async (req, res) => {
 
-  const admin = await Admin.findById(req.adminId);
-
-  if(!admin) return res.status(401).json({error:"Admin not found"});
-
-  const articles = await Article.find({
-    department: admin.department
-  }).sort({createdAt:-1});
-
-  res.json({ items: articles });
-});
-
-/* ===============================
-   ADMIN → CREATE ARTICLE (AUTO DEPT)
-================================ */
-
-router.post("/article", auth, async (req,res)=>{
-
-  const admin = await Admin.findById(req.adminId);
-
-  if(!admin) return res.status(401).json({error:"Admin not found"});
-
-  const { title, summary, content, tags } = req.body;
-
-  const article = await Article.create({
-    title,
-    summary,
-    content,
-    tags,
-    department: admin.department,
-    status:"published"
-  });
-
-  res.json({ ok:true, article });
-});
-
-/* ===============================
-   ADMIN → GET USERS OF DEPARTMENT
-================================ */
-
-router.get("/users", auth, async (req,res)=>{
-
-  const admin = await Admin.findById(req.adminId);
-
-  if(!admin) return res.status(401).json({error:"Admin not found"});
+  if (req.user.role !== "admin")
+    return res.status(403).json({ error: "Admins only" });
 
   const users = await User.find({
-    department: admin.department
-  });
+    department: req.user.department
+  })
+    .select("name email department approved createdAt")
+    .sort({ createdAt: -1 })
+    .lean();
 
   res.json({ items: users });
 });
 
 /* ===============================
-   ADMIN → APPROVE USER
+   APPROVE USER (OWN DEPT)
 ================================ */
 
-router.put("/users/:id/approve", auth, async (req,res)=>{
+router.put("/users/:id/approve", auth, async (req, res) => {
 
-  const admin = await Admin.findById(req.adminId);
-
-  if(!admin) return res.status(401).json({error:"Admin not found"});
+  if (req.user.role !== "admin")
+    return res.status(403).json({ error: "Admins only" });
 
   const user = await User.findById(req.params.id);
 
-  if(!user) return res.status(404).json({error:"User not found"});
+  if (!user)
+    return res.status(404).json({ error: "Not found" });
 
-  // security check
-  if(user.department !== admin.department){
-    return res.status(403).json({error:"Not allowed"});
-  }
+  if (user.department !== req.user.department)
+    return res.status(403).json({ error: "Not allowed" });
 
   user.approved = true;
   await user.save();
 
-  res.json({ ok:true });
+  res.json({ ok: true });
 });
 
 module.exports = router;
