@@ -135,5 +135,25 @@ router.get("/admins", auth, superAdminAuth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+/* ===============================
+   GET ALL USERS WITH DEPARTMENTS
+================================ */
+
+const User = require("../models/User");
+
+router.get("/users", auth, superAdminAuth, async (req, res) => {
+
+  try {
+    const users = await User.find()
+      .select("name email department createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({ items: users });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 module.exports = router;
