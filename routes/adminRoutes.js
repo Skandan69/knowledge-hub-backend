@@ -77,9 +77,9 @@ router.get("/users", auth, async (req, res) => {
     }
 
     // ✅ Only users waiting for approval
-    const users = await User.find({
+const users = await User.find({
   approved: false,
-  department: req.user.department
+  department: req.user.department   // ✅ filter by admin dept
 })
       .select("name email department approved createdAt")
       .sort({ createdAt: -1 })
@@ -113,8 +113,7 @@ router.put("/users/:id/approve", auth, async (req, res) => {
 
     // ✅ Assign admin's department automatically
         user.approved = true;
-
-    await user.save();
+        await user.save();
 
     res.json({ ok: true, user });
 
