@@ -132,12 +132,7 @@ router.get("/admins", auth, superAdminAuth, async (req,res)=>{
       .populate("department","name")
       .lean();
 
-    const cleaned = admins.map(a => ({
-      ...a,
-      department: a.department?.name || a.department || "-"
-    }));
-
-    res.json({ items: cleaned });
+res.json({ items: admins });
 
   }catch(err){
     res.json({ items:[] });
