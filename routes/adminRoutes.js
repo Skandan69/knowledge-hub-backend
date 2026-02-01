@@ -81,7 +81,7 @@ router.get("/users", auth, async (req, res) => {
   approved: false,
   department: req.user.department
 })
-      .select("name email approved createdAt")
+      .select("name email department approved createdAt")
       .sort({ createdAt: -1 })
       .lean();
 
