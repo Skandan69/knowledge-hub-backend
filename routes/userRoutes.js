@@ -36,16 +36,17 @@ router.post("/register", async (req, res) => {
 
     const verificationToken = crypto.randomBytes(32).toString("hex");
 
-  const user = await User.create({
+const { name, email, password, department } = req.body;
+
+const user = await User.create({
   name,
   email,
   password: hashedPassword,
-  department,   // ✅ SAVE DEPARTMENT
-  approved: false,
+  department,          // ✅ SAVE DEPARTMENT
+  approved: false,     // ✅ waiting for admin approval
   verificationToken,
   emailVerified: false
 });
-
     const verifyLink = `https://lightblue-badger-166289.hostingersite.com/user/verify.html?token=${verificationToken}`;
 
     await transporter.sendMail({
