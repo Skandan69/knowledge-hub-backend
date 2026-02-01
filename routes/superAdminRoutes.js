@@ -153,6 +153,39 @@ router.delete("/admins/:id", auth, superAdminAuth, async (req, res) => {
 
   res.json({ ok: true });
 });
+/* ===============================
+   UPDATE ADMIN DEPARTMENT
+================================ */
+
+router.put("/admins/:id/department", auth, superAdminAuth, async (req, res) => {
+
+  try {
+
+    const { department } = req.body;
+
+    if (!department) {
+      return res.status(400).json({ error: "Department required" });
+    }
+
+    const admin = await Admin.findById(req.params.id);
+
+    if (!admin) {
+      return res.status(404).json({ error: "Admin not found" });
+    }
+
+    if (admin.role === "superadmin") {
+      return res.status(403).json({ error: "Cannot modify super admin" });
+    }
+
+    admin.department = department;
+    await admin.save();
+
+    res.json({ ok: true, admin });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 /* ===============================
    GET USERS
