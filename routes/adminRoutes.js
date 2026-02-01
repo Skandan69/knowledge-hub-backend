@@ -111,9 +111,13 @@ router.put("/users/:id/approve", auth, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // ✅ Assign admin's department automatically
-        user.approved = true;
-        await user.save();
+    // 🚨 Safety check (important)
+    if (user.department !== req.user.department) {
+      return res.status(403).json({ error: "Not your department user" });
+    }
+
+    user.approved = true;
+    await user.save();
 
     res.json({ ok: true, user });
 
