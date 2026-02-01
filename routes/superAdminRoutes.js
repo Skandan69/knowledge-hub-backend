@@ -133,6 +133,7 @@ router.post("/admins", auth, superAdminAuth, async (req, res) => {
 router.get("/admins", auth, superAdminAuth, async (req, res) => {
 
   const admins = await Admin.find({ role: "admin" })
+  .populate("department", "name")
     .select("name email department createdAt")
     .sort({ createdAt: -1 })
     .lean();
