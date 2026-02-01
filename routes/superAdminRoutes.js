@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const Admin = require("../models/Admin");
 const Department = require("../models/Department");
+
 const auth = require("../middleware/auth");
 const superAdminAuth = require("../middleware/superAdminAuth");
 
@@ -22,7 +23,10 @@ router.post("/login", async (req, res) => {
     return res.status(400).json({ error: "Email and password required" });
   }
 
-  const admin = await Admin.findOne({ email, role: "superadmin" });
+  const admin = await Admin.findOne({
+    email,
+    role: "superadmin"
+  });
 
   if (!admin) {
     return res.status(401).json({ error: "Invalid credentials" });
@@ -37,8 +41,7 @@ router.post("/login", async (req, res) => {
   const token = jwt.sign(
     {
       id: admin._id,
-      role: admin.role,
-      department: admin.department
+      role: admin.role
     },
     process.env.JWT_SECRET || "knowledgehubsecret",
     { expiresIn: "1d" }
@@ -54,7 +57,6 @@ router.post("/login", async (req, res) => {
   });
 });
 
-
 /* ===============================
    CREATE DEPARTMENT
 ================================ */
@@ -63,19 +65,22 @@ router.post("/departments", auth, superAdminAuth, async (req, res) => {
 
   const { name } = req.body;
 
-  if (!name) return res.status(400).json({ error: "Department name required" });
+  if (!name) {
+    return res.status(400).json({ error: "Department name required" });
+  }
 
   const exists = await Department.findOne({ name });
-  if (exists) return res.status(400).json({ error: "Department already exists" });
+
+  if (exists) {
+    return res.status(400).json({ error: "Department already exists" });
+  }
 
   const dep = await Department.create({
-    name,
-    createdBy: req.user.id
+    name
   });
 
   res.json({ ok: true, department: dep });
 });
-
 
 /* ===============================
    GET ALL DEPARTMENTS
@@ -83,11 +88,12 @@ router.post("/departments", auth, superAdminAuth, async (req, res) => {
 
 router.get("/departments", auth, superAdminAuth, async (req, res) => {
 
-  const deps = await Department.find().sort({ name: 1 }).lean();
+  const deps = await Department.find()
+    .sort({ name: 1 })
+    .lean();
 
   res.json({ items: deps });
 });
-
 
 /* ===============================
    CREATE ADMIN
@@ -102,7 +108,10 @@ router.post("/admins", auth, superAdminAuth, async (req, res) => {
   }
 
   const exists = await Admin.findOne({ email });
-  if (exists) return res.status(400).json({ error: "Admin already exists" });
+
+  if (exists) {
+    return res.status(400).json({ error: "Admin already exists" });
+  }
 
   const hash = await bcrypt.hash(password, 10);
 
@@ -117,42 +126,45 @@ router.post("/admins", auth, superAdminAuth, async (req, res) => {
   res.json({ ok: true, admin });
 });
 
-
 /* ===============================
-   GET ALL ADMINS WITH DEPARTMENTS
+   GET ALL ADMINS + DEPARTMENTS
 ================================ */
 
 router.get("/admins", auth, superAdminAuth, async (req, res) => {
 
-  try {
-    const admins = await Admin.find({ role: "admin" })
-      .select("name email department createdAt")
-      .sort({ createdAt: -1 })
-      .lean();
+  const admins = await Admin.find({ role: "admin" })
+    .select("name email department createdAt")
+    .sort({ createdAt: -1 })
+    .lean();
 
-    res.json({ items: admins });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({ items: admins });
 });
+
 /* ===============================
-   GET ALL USERS WITH DEPARTMENTS
+   GET ALL USERS
 ================================ */
 
 router.get("/users", auth, superAdminAuth, async (req, res) => {
 
-  try {
-    const users = await User.find()
-      .select("name email department createdAt")
-      .sort({ createdAt: -1 })
-      .lean();
+  const users = await User.find()
+    .select("name email department approved createdAt")
+    .sort({ createdAt: -1 })
+    .lean();
 
-    res.json({ items: users });
+  res.json({ items: users });
+});
 
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+/* ===============================
+   APPROVE USER
+================================ */
+
+router.put("/users/:id/approve", auth, superAdminAuth, async (req, res) => {
+
+  await User.findByIdAndUpdate(req.params.id, {
+    approved: true
+  });
+
+  res.json({ ok: true });
 });
 
 module.exports = router;
