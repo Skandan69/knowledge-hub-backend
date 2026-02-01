@@ -125,19 +125,22 @@ router.post("/admins", auth, superAdminAuth, async (req, res) => {
 /* ===============================
    GET ADMINS
 ================================ */
-
-router.get("/admins", auth, superAdminAuth, async (req, res) => {
-  try {
+router.get("/admins", auth, superAdminAuth, async (req,res)=>{
+  try{
 
     const admins = await Admin.find({ role:"admin" })
       .populate("department","name")
-      .sort({ createdAt:-1 })
       .lean();
 
-    res.json({ items:admins });
+    const cleaned = admins.map(a => ({
+      ...a,
+      department: a.department?.name || a.department || "-"
+    }));
 
-  } catch (err) {
-    res.status(500).json({ items:[] });
+    res.json({ items: cleaned });
+
+  }catch(err){
+    res.json({ items:[] });
   }
 });
 
