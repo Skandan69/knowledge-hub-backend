@@ -264,5 +264,25 @@ router.put("/users/:id/department", auth, superAdminAuth, async (req, res) => {
     res.status(500).json({ error:"Update failed" });
   }
 });
+/* ===============================
+   DELETE USER
+================================ */
+
+router.delete("/users/:id", auth, superAdminAuth, async (req, res) => {
+  try {
+
+    const user = await User.findById(req.params.id);
+
+    if (!user)
+      return res.status(404).json({ error:"User not found" });
+
+    await User.findByIdAndDelete(req.params.id);
+
+    res.json({ ok:true });
+
+  } catch (err) {
+    res.status(500).json({ error:"Delete failed" });
+  }
+});
 
 module.exports = router;
