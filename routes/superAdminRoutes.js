@@ -158,13 +158,33 @@ router.get("/users", auth, superAdminAuth, async (req, res) => {
    APPROVE USER
 ================================ */
 
-router.put("/users/:id/approve", auth, superAdminAuth, async (req, res) => {
+router.put("/users/:id/approve", auth, async (req, res) => {
 
-  await User.findByIdAndUpdate(req.params.id, {
-    approved: true
-  });
+  try {
 
-  res.json({ ok: true });
+    const user = await User.findById(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // 🔒 If ADMIN → only approve same department users
+    if (req.user.role === "admin") {
+
+      if (user.department !== req.user.department) {
+        return res.status(403).json({ error: "Not allowed" });
+      }
+    }
+
+    // ✅ Super admin can approve anyone
+    user.approved = true;
+    await user.save();
+
+    res.json({ ok: true, user });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
