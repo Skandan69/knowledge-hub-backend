@@ -129,12 +129,15 @@ router.get("/admins", auth, superAdminAuth, async (req,res)=>{
   try{
 
     const admins = await Admin.find({ role:"admin" })
-      .populate("department","name")
-      .lean();
+      .populate({
+        path: "department",
+        select: "name"
+      });
 
-res.json({ items: admins });
+    res.json({ items: admins });
 
   }catch(err){
+    console.error(err);
     res.json({ items:[] });
   }
 });
