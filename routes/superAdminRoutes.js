@@ -2,6 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
+const User = require("../models/User");
 const Admin = require("../models/Admin");
 const Department = require("../models/Department");
 const auth = require("../middleware/auth");
@@ -138,8 +139,6 @@ router.get("/admins", auth, superAdminAuth, async (req, res) => {
 /* ===============================
    GET ALL USERS WITH DEPARTMENTS
 ================================ */
-
-const User = require("../models/User");
 
 router.get("/users", auth, superAdminAuth, async (req, res) => {
 
