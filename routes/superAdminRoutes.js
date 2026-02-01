@@ -23,10 +23,7 @@ router.post("/login", async (req, res) => {
     return res.status(400).json({ error: "Email and password required" });
   }
 
-  const admin = await Admin.findOne({
-    email,
-    role: "superadmin"
-  });
+  const admin = await Admin.findOne({ email, role: "superadmin" });
 
   if (!admin) {
     return res.status(401).json({ error: "Invalid credentials" });
@@ -39,10 +36,7 @@ router.post("/login", async (req, res) => {
   }
 
   const token = jwt.sign(
-    {
-      id: admin._id,
-      role: admin.role
-    },
+    { id: admin._id, role: admin.role },
     process.env.JWT_SECRET || "knowledgehubsecret",
     { expiresIn: "1d" }
   );
@@ -75,15 +69,13 @@ router.post("/departments", auth, superAdminAuth, async (req, res) => {
     return res.status(400).json({ error: "Department already exists" });
   }
 
-  const dep = await Department.create({
-    name
-  });
+  const dep = await Department.create({ name });
 
   res.json({ ok: true, department: dep });
 });
 
 /* ===============================
-   GET ALL DEPARTMENTS
+   GET DEPARTMENTS
 ================================ */
 
 router.get("/departments", auth, superAdminAuth, async (req, res) => {
@@ -127,13 +119,13 @@ router.post("/admins", auth, superAdminAuth, async (req, res) => {
 });
 
 /* ===============================
-   GET ALL ADMINS + DEPARTMENTS
+   GET ADMINS + DEPARTMENT NAME
 ================================ */
 
 router.get("/admins", auth, superAdminAuth, async (req, res) => {
 
   const admins = await Admin.find({ role: "admin" })
-  .populate("department", "name")
+    .populate("department", "name")
     .select("name email department createdAt")
     .sort({ createdAt: -1 })
     .lean();
@@ -142,13 +134,34 @@ router.get("/admins", auth, superAdminAuth, async (req, res) => {
 });
 
 /* ===============================
-   GET ALL USERS
+   DELETE ADMIN
+================================ */
+
+router.delete("/admins/:id", auth, superAdminAuth, async (req, res) => {
+
+  const admin = await Admin.findById(req.params.id);
+
+  if (!admin) {
+    return res.status(404).json({ error: "Admin not found" });
+  }
+
+  if (admin.role === "superadmin") {
+    return res.status(403).json({ error: "Cannot delete super admin" });
+  }
+
+  await Admin.findByIdAndDelete(req.params.id);
+
+  res.json({ ok: true });
+});
+
+/* ===============================
+   GET USERS
 ================================ */
 
 router.get("/users", auth, superAdminAuth, async (req, res) => {
 
   const users = await User.find()
-   .select("_id name email department approved createdAt")
+    .select("_id name email department approved createdAt")
     .sort({ createdAt: -1 })
     .lean();
 
@@ -156,36 +169,32 @@ router.get("/users", auth, superAdminAuth, async (req, res) => {
 });
 
 /* ===============================
-   APPROVE USER
+   APPROVE USER (ADMIN + SUPERADMIN)
 ================================ */
 
 router.put("/users/:id/approve", auth, async (req, res) => {
 
-  try {
-
-    const user = await User.findById(req.params.id);
-
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    // 🔒 If ADMIN → only approve same department users
-    if (req.user.role === "admin") {
-
-      if (user.department !== req.user.department) {
-        return res.status(403).json({ error: "Not allowed" });
-      }
-    }
-
-    // ✅ Super admin can approve anyone
-    user.approved = true;
-    await user.save();
-
-    res.json({ ok: true, user });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  if (!["admin", "superadmin"].includes(req.user.role)) {
+    return res.status(403).json({ error: "Forbidden" });
   }
+
+  const user = await User.findById(req.params.id);
+
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  // Admin can approve only same department
+  if (req.user.role === "admin") {
+    if (user.department !== req.user.department) {
+      return res.status(403).json({ error: "Not allowed" });
+    }
+  }
+
+  user.approved = true;
+  await user.save();
+
+  res.json({ ok: true, user });
 });
 
 module.exports = router;
