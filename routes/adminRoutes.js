@@ -72,18 +72,19 @@ router.get("/users", auth, async (req, res) => {
 
   try {
 
-    if (req.user.role !== "admin") {
-      return res.status(403).json({ error: "Admins only" });
-    }
-
+    if (!["admin", "superadmin"].includes(req.user.role)) {
+  return res.status(403).json({ error: "Admins only" });
+}
     // ✅ Only users waiting for approval
-const users = await User.find({
-  approved: false,
-  department: req.user.department   // ✅ filter by admin dept
-})
-      .select("name email department approved createdAt")
-      .sort({ createdAt: -1 })
-      .lean();
+let filter = { approved: false };
+
+if (req.user.role === "admin") {
+  filter.department = req.user.department;
+}
+
+const users = await User.find(filter)
+  .select("name email department approved createdAt")
+  .sort({ createdAt: -1 });
 
     res.json({ items: users });
 
