@@ -147,7 +147,7 @@ router.get("/admins", auth, superAdminAuth, async (req, res) => {
 router.get("/users", auth, superAdminAuth, async (req, res) => {
 
   const users = await User.find()
-    .select("name email department approved createdAt")
+   .select("_id name email department approved createdAt")
     .sort({ createdAt: -1 })
     .lean();
 
