@@ -36,12 +36,12 @@ router.post("/register", async (req, res) => {
 
     const verificationToken = crypto.randomBytes(32).toString("hex");
 
-    const user = await User.create({
+  const user = await User.create({
   name,
   email,
   password: hashedPassword,
-  department,        // ✅ ADD
-  approved: false,   // ✅ ADD
+  department,   // ✅ SAVE DEPARTMENT
+  approved: false,
   verificationToken,
   emailVerified: false
 });
