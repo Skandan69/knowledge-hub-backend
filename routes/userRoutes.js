@@ -36,8 +36,6 @@ router.post("/register", async (req, res) => {
 
     const verificationToken = crypto.randomBytes(32).toString("hex");
 
-const { name, email, password, department } = req.body;
-
 const user = await User.create({
   name,
   email,
