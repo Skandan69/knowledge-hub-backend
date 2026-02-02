@@ -77,11 +77,6 @@ router.get("/users", auth, async (req, res) => {
 }
     // ✅ Only users waiting for approval
 let filter = { approved: false };
-
-if (req.user.role === "admin") {
-  filter.department = req.user.department;
-}
-
 const users = await User.find(filter)
   .select("name email department approved createdAt")
   .sort({ createdAt: -1 });
