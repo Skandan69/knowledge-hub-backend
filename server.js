@@ -129,7 +129,7 @@ app.use("/api/superadmin", superAdminRoutes);
    SEARCH
 ================================ */
 
-app.get("/api/kb/search", auth, async(req,res)=>{
+app.get("/api/kb/search", async(req,res)=>{
   const q = req.query.q || "";
   if(!q) return res.json({ items:[] });
 
