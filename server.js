@@ -20,12 +20,14 @@ app.use(express.json({ limit: "20mb" }));
 /* ===============================
    UPLOAD SETUP
 ================================ */
+
 if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
 const upload = multer({ dest: "uploads/" });
 
 /* ===============================
    DB CONNECT
 ================================ */
+
 async function connectDB() {
   await mongoose.connect(process.env.MONGO_URI);
   console.log("✅ MongoDB Connected");
@@ -34,14 +36,28 @@ async function connectDB() {
 /* ===============================
    ARTICLE MODEL
 ================================ */
+
 const articleSchema = new mongoose.Schema({
   articleNumber: { type: String, unique: true },
+
   title: String,
   summary: String,
   content: String,
-  category: { type: String, default: "General" }, // NEW
+
+  // optional legacy (not used by frontend anymore)
+  category: { type: String, default: "General" },
+
   tags: [String],
-  status: { type: String, default: "published" }
+
+  status: { type: String, default: "published" },
+
+  // 👇 NEW: admin ownership
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Admin",
+    required: true
+  }
+
 },{ timestamps:true });
 
 articleSchema.index({
@@ -62,9 +78,7 @@ function makeSummary(content){
   return t.length>140 ? t.slice(0,140)+"..." : t;
 }
 
-// AUTO NEXT KB NUMBER
 async function generateNextKB(){
-
   const counter = await Counter.findOneAndUpdate(
     { name: "kb" },
     { $inc: { value: 1 } },
@@ -74,13 +88,11 @@ async function generateNextKB(){
   return "KB-" + String(counter.value).padStart(6, "0");
 }
 
-// OLD PDF / TEXT SPLIT
 function splitByTaskType(text){
   const parts = text.split(/(?:^|\n)\s*(?:\d+\.\s*)?Task type:\s*/gi);
 
   return parts.slice(1).map(p=>{
     const lines = p.trim().split("\n");
-
     return {
       title: lines[0] || "Untitled",
       content: lines.slice(1).join("\n")
@@ -88,7 +100,6 @@ function splitByTaskType(text){
   });
 }
 
-// NEW WORD HEADING SPLIT
 function splitByHeadings(html){
 
   const parts = html.split(/<h1[^>]*>/i).slice(1);
@@ -113,7 +124,7 @@ function splitByHeadings(html){
     };
   });
 }
-  
+
 /* ===============================
    ROUTES
 ================================ */
@@ -125,11 +136,13 @@ app.get("/",(req,res)=>{
 app.use("/api/admin", adminRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/superadmin", superAdminRoutes);
+
 /* ===============================
-   SEARCH
+   SEARCH (USERS)
 ================================ */
 
 app.get("/api/kb/search", async(req,res)=>{
+
   const q = req.query.q || "";
   if(!q) return res.json({ items:[] });
 
@@ -145,11 +158,17 @@ app.get("/api/kb/search", async(req,res)=>{
 });
 
 /* ===============================
-   GET ALL ARTICLES (ADMIN)
+   GET ARTICLES (ADMIN ONLY THEIR OWN)
 ================================ */
 
-app.get("/api/kb/articles", async(req,res)=>{
-  const items = await Article.find().sort({ articleNumber:1 }).lean();
+app.get("/api/kb/articles", auth, async(req,res)=>{
+
+  const items = await Article.find({
+    createdBy: req.user.id
+  })
+  .sort({ createdAt: -1 })   // latest first
+  .lean();
+
   res.json({ items });
 });
 
@@ -157,43 +176,55 @@ app.get("/api/kb/articles", async(req,res)=>{
    GET SINGLE ARTICLE
 ================================ */
 
-app.get("/api/kb/article/:kb", async(req,res)=>{
-  const item = await Article.findOne({ articleNumber:req.params.kb }).lean();
+app.get("/api/kb/article/:kb", auth, async(req,res)=>{
+
+  const item = await Article.findOne({
+    articleNumber:req.params.kb,
+    createdBy: req.user.id
+  }).lean();
+
   if(!item) return res.status(404).json({ error:"Not found" });
+
   res.json(item);
 });
 
 /* ===============================
-   CREATE ARTICLE (AUTO KB)
+   CREATE ARTICLE
 ================================ */
 
 app.post("/api/kb/article", auth, async(req,res)=>{
-  const { title, summary, content, tags, status, category } = req.body;
+
+  const { title, summary, content, tags, status } = req.body;
 
   if(!title) return res.status(400).json({ error:"Title required" });
 
   const kb = await generateNextKB();
 
- const doc = await Article.create({
-  articleNumber: kb,
-  title,
-  summary: summary || makeSummary(content),
-  content,
-  category: category || "General",
-  tags: tags || [],
-  status: status || "published"
-});
+  const doc = await Article.create({
+    articleNumber: kb,
+    title,
+    summary: summary || makeSummary(content),
+    content,
+    tags: tags || [],
+    status: status || "published",
+
+    createdBy: req.user.id   // 👈 ownership saved
+  });
 
   res.json({ ok:true, item:doc });
 });
 
 /* ===============================
-   UPDATE
+   UPDATE (OWN ARTICLE ONLY)
 ================================ */
 
 app.put("/api/kb/article/:kb", auth, async(req,res)=>{
+
   const updated = await Article.findOneAndUpdate(
-    { articleNumber:req.params.kb },
+    { 
+      articleNumber:req.params.kb,
+      createdBy:req.user.id 
+    },
     { $set:req.body },
     { new:true }
   );
@@ -202,11 +233,16 @@ app.put("/api/kb/article/:kb", auth, async(req,res)=>{
 });
 
 /* ===============================
-   DELETE
+   DELETE (OWN ARTICLE ONLY)
 ================================ */
 
 app.delete("/api/kb/article/:kb", auth, async(req,res)=>{
-  await Article.findOneAndDelete({ articleNumber:req.params.kb });
+
+  await Article.findOneAndDelete({
+    articleNumber:req.params.kb,
+    createdBy:req.user.id
+  });
+
   res.json({ ok:true });
 });
 
@@ -215,6 +251,7 @@ app.delete("/api/kb/article/:kb", auth, async(req,res)=>{
 ================================ */
 
 app.post("/api/kb/import-text", auth, async(req,res)=>{
+
   const { text } = req.body;
   if(!text) return res.status(400).json({ error:"Text required" });
 
@@ -223,16 +260,19 @@ app.post("/api/kb/import-text", auth, async(req,res)=>{
   let created=0;
 
   for(const sec of sections){
+
     const kb = await generateNextKB();
+
     await Article.create({
-  articleNumber: kb,
-  title: sec.title,
-  summary: makeSummary(sec.content),
-  content: sec.content,
-  category: "General",
-  tags:["bulk"],
-  status:"published"
-});
+      articleNumber: kb,
+      title: sec.title,
+      summary: makeSummary(sec.content),
+      content: sec.content,
+      tags:["bulk"],
+      status:"published",
+      createdBy: req.user.id
+    });
+
     created++;
   }
 
@@ -244,6 +284,7 @@ app.post("/api/kb/import-text", auth, async(req,res)=>{
 ================================ */
 
 app.post("/api/kb/upload", auth, upload.single("file"), async(req,res)=>{
+
   const { mode } = req.body;
   const file = req.file;
 
@@ -251,10 +292,10 @@ app.post("/api/kb/upload", auth, upload.single("file"), async(req,res)=>{
 
   let text="";
 
- if(file.originalname.endsWith(".docx")){
-  const r = await mammoth.convertToHtml({ path: file.path });
-  text = r.value;
-}
+  if(file.originalname.endsWith(".docx")){
+    const r = await mammoth.convertToHtml({ path: file.path });
+    text = r.value;
+  }
 
   if(file.originalname.endsWith(".pdf")){
     const buf = fs.readFileSync(file.path);
@@ -270,45 +311,56 @@ app.post("/api/kb/upload", auth, upload.single("file"), async(req,res)=>{
 
   // SINGLE
   if(mode==="single"){
+
     const kb = await generateNextKB();
-   await Article.create({
-  articleNumber: kb,
-  title: file.originalname,
-  summary: makeSummary(text),
-  content:text,
-  category: "General",
-  tags:["upload"]
-});
+
+    await Article.create({
+      articleNumber: kb,
+      title: file.originalname,
+      summary: makeSummary(text),
+      content:text,
+      tags:["upload"],
+      status:"published",
+      createdBy: req.user.id
+    });
+
     created=1;
   }
 
   // SPLIT
   else{
+
     let sections = [];
 
-if(file.originalname.endsWith(".docx")){
-   sections = splitByHeadings(text);
-} else {
-   sections = splitByTaskType(text);
-}
+    if(file.originalname.endsWith(".docx")){
+      sections = splitByHeadings(text);
+    } else {
+      sections = splitByTaskType(text);
+    }
+
     for(const sec of sections){
+
       const kb = await generateNextKB();
-     await Article.create({
-  articleNumber: kb,
-  title: sec.title,
-  summary: makeSummary(sec.content),
-  content: sec.content,
-  category: "General",
-  tags:["upload"]
-});
+
+      await Article.create({
+        articleNumber: kb,
+        title: sec.title,
+        summary: makeSummary(sec.content),
+        content: sec.content,
+        tags:["upload"],
+        status:"published",
+        createdBy: req.user.id
+      });
+
       created++;
     }
   }
 
   res.json({ ok:true, created });
 });
+
 /* ===============================
-   ONE TIME SUPER ADMIN SETUP
+   SUPER ADMIN SETUP (UNCHANGED)
 ================================ */
 
 const bcrypt = require("bcryptjs");
@@ -322,7 +374,6 @@ app.post("/setup-superadmin", async (req, res) => {
     return res.status(400).json({ error: "All fields required" });
   }
 
-  // Check if super admin already exists
   const exists = await Admin.findOne({ role: "superadmin" });
 
   if (exists) {
