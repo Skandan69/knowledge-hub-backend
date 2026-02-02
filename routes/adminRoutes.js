@@ -113,5 +113,18 @@ router.put("/users/:id/approve", auth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+router.post("/reset-admin-password", async (req,res)=>{
+  const { email, newPassword } = req.body;
+
+  const hash = await bcrypt.hash(newPassword,10);
+
+  const admin = await Admin.findOneAndUpdate(
+    { email },
+    { password: hash },
+    { new:true }
+  );
+
+  res.json({ ok:true, admin });
+});
 
 module.exports = router;
