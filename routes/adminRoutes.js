@@ -14,7 +14,6 @@ const router = express.Router();
 ================================ */
 
 router.post("/login", async (req, res) => {
-
   try {
 
     const { email, password } = req.body;
@@ -35,12 +34,11 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // ✅ JWT includes department + role
+    // JWT (simple — no department dependency)
     const token = jwt.sign(
       {
         id: admin._id,
-        role: admin.role,
-        department: admin.department
+        role: admin.role
       },
       process.env.JWT_SECRET || "knowledgehubsecret",
       { expiresIn: "8h" }
@@ -53,8 +51,7 @@ router.post("/login", async (req, res) => {
         id: admin._id,
         name: admin.name,
         email: admin.email,
-        role: admin.role,
-        department: admin.department
+        role: admin.role
       }
     });
 
@@ -65,19 +62,21 @@ router.post("/login", async (req, res) => {
 
 
 /* ===============================
-   GET PENDING USERS (ALL ADMINS SEE SAME LIST)
+   GET PENDING USERS
 ================================ */
+
+router.get("/users", auth, async (req, res) => {
 
   try {
 
     if (!["admin", "superadmin"].includes(req.user.role)) {
-  return res.status(403).json({ error: "Admins only" });
-}
-    // ✅ Only users waiting for approval
-let filter = { approved: false };
-const users = await User.find(filter)
-  .select("name email department approved createdAt")
-  .sort({ createdAt: -1 });
+      return res.status(403).json({ error: "Admins only" });
+    }
+
+    // Users waiting approval
+    const users = await User.find({ approved: false })
+      .select("name email approved createdAt")
+      .sort({ createdAt: -1 });
 
     res.json({ items: users });
 
@@ -88,12 +87,14 @@ const users = await User.find(filter)
 
 
 /* ===============================
-   APPROVE USER (AUTO ASSIGN DEPARTMENT)
+   APPROVE USER
 ================================ */
+
+router.put("/users/:id/approve", auth, async (req, res) => {
 
   try {
 
-    if (req.user.role !== "admin") {
+    if (!["admin", "superadmin"].includes(req.user.role)) {
       return res.status(403).json({ error: "Admins only" });
     }
 
@@ -101,11 +102,6 @@ const users = await User.find(filter)
 
     if (!user) {
       return res.status(404).json({ error: "User not found" });
-    }
-
-    // 🚨 Safety check (important)
-    if (user.department !== req.user.department) {
-      return res.status(403).json({ error: "Not your department user" });
     }
 
     user.approved = true;
