@@ -68,8 +68,6 @@ router.post("/login", async (req, res) => {
    GET PENDING USERS (ALL ADMINS SEE SAME LIST)
 ================================ */
 
-router.get("/users", auth, async (req, res) => {
-
   try {
 
     if (!["admin", "superadmin"].includes(req.user.role)) {
@@ -92,8 +90,6 @@ const users = await User.find(filter)
 /* ===============================
    APPROVE USER (AUTO ASSIGN DEPARTMENT)
 ================================ */
-
-router.put("/users/:id/approve", auth, async (req, res) => {
 
   try {
 
