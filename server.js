@@ -176,11 +176,11 @@ app.get("/api/kb/articles", auth, async(req,res)=>{
    GET SINGLE ARTICLE
 ================================ */
 
-app.get("/api/kb/article/:kb", auth, async(req,res)=>{
+app.get("/api/kb/article/:kb", async(req,res)=>{
 
   const item = await Article.findOne({
-    articleNumber:req.params.kb,
-    createdBy: req.user.id
+    articleNumber: req.params.kb,
+    status: "published"   // only public articles
   }).lean();
 
   if(!item) return res.status(404).json({ error:"Not found" });
